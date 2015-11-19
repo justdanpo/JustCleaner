@@ -29,6 +29,10 @@ function Get-ComProperty ($object, $PropertyName, $params) {
   return $object.GetType().InvokeMember($PropertyName, "GetProperty", $null, $object, $params)
 }
 
+function Invoke-ComMethod ($object, $PropertyName, $params) {
+  return $object.GetType().InvokeMember($PropertyName, "InvokeMethod", $null, $object, $params)
+}
+
 function Get-Formatted ($b) {
   return $b.ToString('N0')
 }
@@ -57,17 +61,46 @@ $inst = New-Object -ComObject WindowsInstaller.Installer
 
 $patchesList = @()
 Get-ComProperty $inst Products @() |% {
+  try {
+    $patchesList += Get-ComProperty $inst ProductInfo @("$_", "LocalPackage")
+  }
+  catch {
+  }
+
   Get-ComProperty $inst Patches $_ |% {
-    $patchesList += Get-ComProperty $inst PatchInfo @("$_", "LocalPackage")
+    try {
+      $patchesList += Get-ComProperty $inst PatchInfo @("$_", "LocalPackage")
+    }
+    catch {
+    }
   }
 }
 
 $msplen = 0
-ls $env:windir\Installer\*.msp |% {
+ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
   $curfilelen = $_.Length
   if ( -not ($patchesList -icontains $_.FullName) ) {
+
+    try {
+      $extDatabaseModes = @{
+        ".MSI" = 0  #msiOpenDatabaseModeReadOnly
+        ".MSP" = 32 #msiOpenDatabaseModePatchFile
+      } 
+
+      $instDB = Invoke-ComMethod $inst "OpenDatabase" @($_.FullName, $extDatabaseModes[[System.IO.Path]::GetExtension($_).ToUpper()])
+      $mspSummaryInfo = Get-ComProperty $instDB "SummaryInformation"
+      $mspInfo = Get-ComProperty $mspSummaryInfo "Property" @(3) #PIDSI_SUBJECT = 3
+      if ( -not $mspInfo ) { $mspInfo= Get-ComProperty $mspSummaryInfo "Property" @(2) } #PIDSI_TITLE = 2
+      if ( $mspInfo ) { $mspInfo = "`n    ("+$mspInfo+")" }
+    }
+    catch {
+      $mspInfo = ""
+    }
+    $instDB = $null
+    [GC]::Collect()
+    
     Add-Type -AssemblyName Microsoft.VisualBasic
-    Write-Host "Move to the Recycle Bin: "$_.FullName
+    Write-Host "Move to the Recycle Bin: "$_.FullName$mspInfo
     [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($_.FullName,'OnlyErrorDialogs','SendToRecycleBin')
     $msplen += $curfilelen
   }
@@ -76,9 +109,9 @@ ls $env:windir\Installer\*.msp |% {
 # --------------------------------------------------------------
 
 if ( $msplen+$cbslen ) {
-  Write-Host "MSP:   "(Get-Formatted($msplen))" bytes"
-  Write-Host "CBS:   "(Get-Formatted($cbslen))" bytes"
-  Write-Host "`nTotal: "(Get-Formatted($msplen+$cbslen))" bytes`n"
+  Write-Host "MSP/MSP: "(Get-Formatted($msplen))" bytes"
+  Write-Host "CBS:     "(Get-Formatted($cbslen))" bytes"
+  Write-Host "`nTotal:   "(Get-Formatted($msplen+$cbslen))" bytes`n"
 }
 
 Write-Host -NoNewLine "Press any key to continue..."
