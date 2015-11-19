@@ -109,7 +109,7 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
 # --------------------------------------------------------------
 
 if ( $msplen+$cbslen ) {
-  Write-Host "MSP/MSP: "(Get-Formatted($msplen))" bytes"
+  Write-Host "MSI/MSP: "(Get-Formatted($msplen))" bytes"
   Write-Host "CBS:     "(Get-Formatted($cbslen))" bytes"
   Write-Host "`nTotal:   "(Get-Formatted($msplen+$cbslen))" bytes`n"
 }
