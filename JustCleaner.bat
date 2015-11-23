@@ -9,7 +9,7 @@ function GetAdminRights {
   {
     if ((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System).EnableLua -ne 0)
     {
-      Start-Process "$env:ComSpec" -verb runas -argumentlist "/c ""$env:cbsclear_self"""
+      Start-Process "$env:ComSpec" -verb runas -argumentlist "/c ""$env:cbsclear_self"" $env:cbsclear_args"
     }
     else
     {
@@ -21,7 +21,7 @@ function GetAdminRights {
 
 function GetDirLength ([string] $dirname) {
   $totallen = 0
-  ls $dirname |% { $totallen = $totallen + $_.Length }
+  ls -recurse -force $dirname |% { $totallen = $totallen + $_.Length }
   return $totallen
 }
 
@@ -40,6 +40,7 @@ function Get-Formatted ($b) {
 
 GetAdminRights
 
+$total = 0
 # CBS log ------------------------------------------------------
 
 $wasStarted = (Get-Service -Name TrustedInstaller).Status -ieq "running"
@@ -47,9 +48,10 @@ if ($wasStarted) {
   Stop-Service TrustedInstaller
 }
 
-$cbslen = GetDirLength "$env:SystemRoot\logs\cbs\*.*"
+$cbslen = GetDirLength "$env:SystemRoot\logs\cbs"
 Remove-Item "$env:SystemRoot\logs\cbs\*.*"
-$cbslen = $cbslen - (GetDirLength "$env:SystemRoot\logs\cbs\*.*")
+$cbslen = $cbslen - (GetDirLength "$env:SystemRoot\logs\cbs")
+$total += $cbslen
 
 if ($wasStarted) {
   Start-Service TrustedInstaller
@@ -105,13 +107,98 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
     $msplen += $curfilelen
   }
 }
+$total += $msplen
+
+# --------------------------------------------------------------
+function rmd([string]$fname) {
+  takeown.exe /f "$fname" /r /d y | out-null
+  icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
+  remove-item -recurse -force $fname
+}
+
+function rmcontentgetlen([string]$fname) {
+  $len = GetDirLength $fname
+  ls -force $fname |% {
+    rmd $_.FullName
+  }
+  $len = $len - (GetDirLength $fname)
+  return $len
+}
+
+if($env:cbsclear_args -imatch "hardcore") {
+
+  #-WinSXS -----------------------------------------------------
+  $myusername=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+  $sxsgroups = @{}
+  ls "$env:windir\winsxs" |% {
+    $m = [regex]::Match($_.Name,"^(.*_\d+\.\d+\.\d+\.)\d+(_.*?)_.*?$")
+    if ($m.Success)
+    {
+      $key = $m.Groups[1].Value+"*"+$m.Groups[2].Value
+      if(!$sxsgroups[$key]) {
+        $sxsgroups[$key] = @{}
+      }
+      $sxsgroups[$key][$_.Name]=$_.FullName
+    }
+  }
+
+  $sxslen = 0
+  $sxsgroups.Keys |% {
+    $group = $_
+    $sxsgroups[$_].GetEnumerator() | Sort-Object Key -descending | select -skip 1 | Sort-Object Key |% {
+      Write-Host "removing  "$_.Value
+      $sxslen += GetDirLength $_.Value
+      rmd $_.Value
+    }
+  }
+  $total += $sxslen
+
+  #-Downloaded Installations------------------------------------
+  $dl1len = rmcontentgetlen "$env:windir\Downloaded Installations"
+  $total += $dl1len
+
+  #-SoftwareDistribution----------------------------------------
+  $wuauservWasStarted = (Get-Service -Name wuauserv).Status -ieq "running"
+  $bitsWasStarted = (Get-Service -Name bits).Status -ieq "running"
+  if ($wuauservWasStarted) {
+    Stop-Service wuauserv
+  }
+  if ($bitsWasStarted) {
+    Stop-Service bits
+  }
+  $dl2len = rmcontentgetlen "$env:windir\SoftwareDistribution\Download"
+  $total += $dl2len
+  if ($wuauservWasStarted) {
+    Start-Service wuauserv
+  }
+  if ($bitsWasStarted) {
+    Start-Service bits
+  }
+
+  #-$PatchCache$------------------------------------------------
+  $pcslen = rmcontentgetlen "$env:windir\Installer\`$PatchCache`$\Managed"
+  $total += $pcslen
+
+}
 
 # --------------------------------------------------------------
 
-if ( $msplen+$cbslen ) {
+if ( $total ) {
   Write-Host "MSI/MSP: "(Get-Formatted($msplen))" bytes"
   Write-Host "CBS:     "(Get-Formatted($cbslen))" bytes"
-  Write-Host "`nTotal:   "(Get-Formatted($msplen+$cbslen))" bytes`n"
+  if( $sxslen ) {
+    Write-Host "WinSXS:  "(Get-Formatted($sxslen))" bytes"
+  }
+  if( $dl1len ) {
+    Write-Host "DL1:     "(Get-Formatted($dl1len))" bytes"
+  }
+  if( $dl2len ) {
+    Write-Host "DL2:     "(Get-Formatted($dl2len))" bytes"
+  }
+  if( $pcslen ) {
+    Write-Host "PCache:  "(Get-Formatted($pcslen))" bytes"
+  }
+  Write-Host "`nTotal:   "(Get-Formatted($total))" bytes`n"
 }
 
 Write-Host -NoNewLine "Press any key to continue..."
