@@ -9,7 +9,7 @@ function GetAdminRights {
   {
     if ((Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System).EnableLua -ne 0)
     {
-      Start-Process "$env:ComSpec" -verb runas -argumentlist "/c ""$env:cbsclear_self"""
+      Start-Process "$env:ComSpec" -verb runas -argumentlist "/c ""$env:cbsclear_self"" $env:cbsclear_args"
     }
     else
     {
@@ -21,7 +21,7 @@ function GetAdminRights {
 
 function GetDirLength ([string] $dirname) {
   $totallen = 0
-  ls $dirname |% { $totallen = $totallen + $_.Length }
+  ls -recurse -force $dirname |% { $totallen = $totallen + $_.Length }
   return $totallen
 }
 
@@ -40,6 +40,7 @@ function Get-Formatted ($b) {
 
 GetAdminRights
 
+$total = 0
 # CBS log ------------------------------------------------------
 
 $wasStarted = (Get-Service -Name TrustedInstaller).Status -ieq "running"
@@ -47,9 +48,10 @@ if ($wasStarted) {
   Stop-Service TrustedInstaller
 }
 
-$cbslen = GetDirLength "$env:SystemRoot\logs\cbs\*.*"
+$cbslen = GetDirLength "$env:SystemRoot\logs\cbs"
 Remove-Item "$env:SystemRoot\logs\cbs\*.*"
-$cbslen = $cbslen - (GetDirLength "$env:SystemRoot\logs\cbs\*.*")
+$cbslen = $cbslen - (GetDirLength "$env:SystemRoot\logs\cbs")
+$total += $cbslen
 
 if ($wasStarted) {
   Start-Service TrustedInstaller
@@ -96,8 +98,9 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
     catch {
       $mspInfo = ""
     }
-    $instDB = $null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject([System.__ComObject]$instDB) | out-null
     [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
     
     Add-Type -AssemblyName Microsoft.VisualBasic
     Write-Host "Move to the Recycle Bin: "$_.FullName$mspInfo
@@ -105,13 +108,14 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
     $msplen += $curfilelen
   }
 }
+$total += $msplen
 
 # --------------------------------------------------------------
 
-if ( $msplen+$cbslen ) {
+if ( $total ) {
   Write-Host "MSI/MSP: "(Get-Formatted($msplen))" bytes"
   Write-Host "CBS:     "(Get-Formatted($cbslen))" bytes"
-  Write-Host "`nTotal:   "(Get-Formatted($msplen+$cbslen))" bytes`n"
+  Write-Host "`nTotal:   "(Get-Formatted($total))" bytes`n"
 }
 
 Write-Host -NoNewLine "Press any key to continue..."
