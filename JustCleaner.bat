@@ -98,8 +98,9 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
     catch {
       $mspInfo = ""
     }
-    $instDB = $null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject([System.__ComObject]$instDB) | out-null
     [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
     
     Add-Type -AssemblyName Microsoft.VisualBasic
     Write-Host "Move to the Recycle Bin: "$_.FullName$mspInfo
