@@ -111,6 +111,7 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
 $total += $msplen
 
 # --------------------------------------------------------------
+$myusername=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 function rmd([string]$fname) {
   takeown.exe /f "$fname" /r /d y | out-null
   icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
@@ -118,18 +119,20 @@ function rmd([string]$fname) {
 }
 
 function rmcontentgetlen([string]$fname) {
-  $len = GetDirLength $fname
-  ls -force $fname |% {
-    rmd $_.FullName
+  $len = 0
+  if( Test-Path $fname ) {
+    $len = GetDirLength $fname
+    ls -force $fname |% {
+      rmd $_.FullName
+    }
+    $len = $len - (GetDirLength $fname)
   }
-  $len = $len - (GetDirLength $fname)
   return $len
 }
 
 if($env:cbsclear_args -imatch "hardcore") {
 
   #-WinSXS -----------------------------------------------------
-  $myusername=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
   $sxsgroups = @{}
   ls "$env:windir\winsxs" |% {
     $m = [regex]::Match($_.Name,"^(.*_\d+\.\d+\.\d+\.)\d+(_.*?)_.*?$")
@@ -146,7 +149,7 @@ if($env:cbsclear_args -imatch "hardcore") {
   $sxslen = 0
   $sxsgroups.Keys |% {
     $group = $_
-    $sxsgroups[$_].GetEnumerator() | Sort-Object Key -descending | select -skip 1 | Sort-Object Key |% {
+    $sxsgroups[$group].GetEnumerator() | Sort-Object Key -descending | select -skip 1 | select -skip 1 -last $sxsgroups[$group].count| Sort-Object Key |% {
       Write-Host "removing  "$_.Value
       $sxslen += GetDirLength $_.Value
       rmd $_.Value
