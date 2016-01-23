@@ -111,10 +111,72 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
 $total += $msplen
 
 # --------------------------------------------------------------
+$myusername=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+function rmd([string]$fname) {
+  takeown.exe /f "$fname" /r /d y | out-null
+  icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
+  remove-item -recurse -force $fname
+}
+
+function rmcontentgetlen([string]$fname) {
+  $len = 0
+  if( Test-Path $fname ) {
+    $len = GetDirLength $fname
+    ls -force $fname |% {
+      rmd $_.FullName
+    }
+    $len = $len - (GetDirLength $fname)
+  }
+  return $len
+}
+
+if($env:cbsclear_args -imatch "hardcore") {
+
+  #-Downloaded Installations------------------------------------
+  $dl1len = rmcontentgetlen "$env:windir\Downloaded Installations"
+  $total += $dl1len
+
+  #-SoftwareDistribution----------------------------------------
+  $wuauservWasStarted = (Get-Service -Name wuauserv).Status -ieq "running"
+  $bitsWasStarted = (Get-Service -Name bits).Status -ieq "running"
+  if ($wuauservWasStarted) {
+    Stop-Service wuauserv
+  }
+  if ($bitsWasStarted) {
+    Stop-Service bits
+  }
+  $dl2len = rmcontentgetlen "$env:windir\SoftwareDistribution\Download"
+  $total += $dl2len
+  if ($wuauservWasStarted) {
+    Start-Service wuauserv
+  }
+  if ($bitsWasStarted) {
+    Start-Service bits
+  }
+
+  #-$PatchCache$------------------------------------------------
+  $pcslen = rmcontentgetlen "$env:windir\Installer\`$PatchCache`$\Managed"
+  $total += $pcslen
+
+}
+
+# --------------------------------------------------------------
 
 if ( $total ) {
   Write-Host "MSI/MSP: "(Get-Formatted($msplen))" bytes"
   Write-Host "CBS:     "(Get-Formatted($cbslen))" bytes"
+  if( $sxslen ) {
+    Write-Host "WinSXS:  "(Get-Formatted($sxslen))" bytes"
+  }
+  if( $dl1len ) {
+    Write-Host "DL1:     "(Get-Formatted($dl1len))" bytes"
+  }
+  if( $dl2len ) {
+    Write-Host "DL2:     "(Get-Formatted($dl2len))" bytes"
+  }
+  if( $pcslen ) {
+    Write-Host "PCache:  "(Get-Formatted($pcslen))" bytes"
+  }
   Write-Host "`nTotal:   "(Get-Formatted($total))" bytes`n"
 }
 
