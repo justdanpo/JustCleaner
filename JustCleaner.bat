@@ -37,24 +37,44 @@ function Get-Formatted ($b) {
   return $b.ToString('N0')
 }
 
+$myusername=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+function RemoveProtectedRecursive([string]$fname) {
+  takeown.exe /f "$fname" /r /d y | out-null
+  icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
+  remove-item -recurse -force $fname
+}
+
+function RemoveProtectedRecursiveAndGetLen([string]$fname) {
+  $len = 0
+  if( Test-Path $fname ) {
+    $len = GetDirLength $fname
+
+    takeown.exe /f "$fname" /r /d y | out-null
+    icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
+    remove-item -recurse -force (join-path $fname "*")
+
+    $len = $len - (GetDirLength $fname)
+  }
+  return $len
+}
+
 
 GetAdminRights
 
 $total = 0
+
 # CBS log ------------------------------------------------------
 
 $wasStarted = (Get-Service -Name TrustedInstaller).Status -ieq "running"
 if ($wasStarted) {
-  Stop-Service TrustedInstaller
+  net.exe stop TrustedInstaller
 }
 
-$cbslen = GetDirLength "$env:SystemRoot\logs\cbs"
-Remove-Item "$env:SystemRoot\logs\cbs\*.*"
-$cbslen = $cbslen - (GetDirLength "$env:SystemRoot\logs\cbs")
+$cbslen = RemoveProtectedRecursiveAndGetLen "$env:SystemRoot\logs\cbs"
 $total += $cbslen
 
 if ($wasStarted) {
-  Start-Service TrustedInstaller
+  net.exe start TrustedInstaller
 }
 
 # MSI patches --------------------------------------------------
@@ -111,51 +131,32 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
 $total += $msplen
 
 # --------------------------------------------------------------
-$myusername=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-function rmd([string]$fname) {
-  takeown.exe /f "$fname" /r /d y | out-null
-  icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
-  remove-item -recurse -force $fname
-}
-
-function rmcontentgetlen([string]$fname) {
-  $len = 0
-  if( Test-Path $fname ) {
-    $len = GetDirLength $fname
-    ls -force $fname |% {
-      rmd $_.FullName
-    }
-    $len = $len - (GetDirLength $fname)
-  }
-  return $len
-}
-
 if($env:cbsclear_args -imatch "hardcore") {
 
   #-Downloaded Installations------------------------------------
-  $dl1len = rmcontentgetlen "$env:windir\Downloaded Installations"
+  $dl1len = RemoveProtectedRecursiveAndGetLen "$env:windir\Downloaded Installations"
   $total += $dl1len
 
   #-SoftwareDistribution----------------------------------------
   $wuauservWasStarted = (Get-Service -Name wuauserv).Status -ieq "running"
   $bitsWasStarted = (Get-Service -Name bits).Status -ieq "running"
   if ($wuauservWasStarted) {
-    Stop-Service wuauserv
+    net.exe stop wuauserv
   }
   if ($bitsWasStarted) {
-    Stop-Service bits
+    net.exe stop bits
   }
-  $dl2len = rmcontentgetlen "$env:windir\SoftwareDistribution\Download"
+  $dl2len = RemoveProtectedRecursiveAndGetLen "$env:windir\SoftwareDistribution\Download"
   $total += $dl2len
   if ($wuauservWasStarted) {
-    Start-Service wuauserv
+    net.exe start wuauserv
   }
   if ($bitsWasStarted) {
-    Start-Service bits
+    net.exe start bits
   }
 
   #-$PatchCache$------------------------------------------------
-  $pcslen = rmcontentgetlen "$env:windir\Installer\`$PatchCache`$\Managed"
+  $pcslen = RemoveProtectedRecursiveAndGetLen "$env:windir\Installer\`$PatchCache`$\Managed"
   $total += $pcslen
 
 }
