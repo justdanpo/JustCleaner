@@ -130,35 +130,34 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
 }
 $total += $msplen
 
+#-Downloaded Installations------------------------------------
+$dl1len = RemoveProtectedRecursiveAndGetLen "$env:windir\Downloaded Installations"
+$total += $dl1len
+
+#-SoftwareDistribution----------------------------------------
+$wuauservWasStarted = (Get-Service -Name wuauserv).Status -ieq "running"
+$bitsWasStarted = (Get-Service -Name bits).Status -ieq "running"
+if ($wuauservWasStarted) {
+  net.exe stop wuauserv
+}
+if ($bitsWasStarted) {
+  net.exe stop bits
+}
+$dl2len = RemoveProtectedRecursiveAndGetLen "$env:windir\SoftwareDistribution\Download"
+$total += $dl2len
+if ($wuauservWasStarted) {
+  net.exe start wuauserv
+}
+if ($bitsWasStarted) {
+  net.exe start bits
+}
+
+#-$PatchCache$------------------------------------------------
+$pcslen = RemoveProtectedRecursiveAndGetLen "$env:windir\Installer\`$PatchCache`$\Managed"
+$total += $pcslen
+
 # --------------------------------------------------------------
 if($env:cbsclear_args -imatch "hardcore") {
-
-  #-Downloaded Installations------------------------------------
-  $dl1len = RemoveProtectedRecursiveAndGetLen "$env:windir\Downloaded Installations"
-  $total += $dl1len
-
-  #-SoftwareDistribution----------------------------------------
-  $wuauservWasStarted = (Get-Service -Name wuauserv).Status -ieq "running"
-  $bitsWasStarted = (Get-Service -Name bits).Status -ieq "running"
-  if ($wuauservWasStarted) {
-    net.exe stop wuauserv
-  }
-  if ($bitsWasStarted) {
-    net.exe stop bits
-  }
-  $dl2len = RemoveProtectedRecursiveAndGetLen "$env:windir\SoftwareDistribution\Download"
-  $total += $dl2len
-  if ($wuauservWasStarted) {
-    net.exe start wuauserv
-  }
-  if ($bitsWasStarted) {
-    net.exe start bits
-  }
-
-  #-$PatchCache$------------------------------------------------
-  $pcslen = RemoveProtectedRecursiveAndGetLen "$env:windir\Installer\`$PatchCache`$\Managed"
-  $total += $pcslen
-
 }
 
 # --------------------------------------------------------------
