@@ -19,7 +19,7 @@ function GetAdminRights {
   }
 }
 
-function GetDirLength ([string] $dirname) {
+function GetPathLength ([string] $dirname) {
   $totallen = 0
   ls -recurse -force $dirname |% { $totallen = $totallen + $_.Length }
   return $totallen
@@ -47,13 +47,13 @@ function RemoveProtectedRecursive([string]$fname) {
 function RemoveProtectedRecursiveAndGetLen([string]$fname) {
   $len = 0
   if( Test-Path $fname ) {
-    $len = GetDirLength $fname
+    $len = GetPathLength $fname
 
     takeown.exe /f "$fname" /r /d y | out-null
     icacls.exe "$fname" /grant $myusername":(F)" /T /C /Q | out-null
     remove-item -recurse -force (join-path $fname "*")
 
-    $len = $len - (GetDirLength $fname)
+    $len = $len - (GetPathLength $fname)
   }
   return $len
 }
@@ -98,7 +98,7 @@ Get-ComProperty $inst Products @() |% {
   }
 }
 
-$msplen = 0
+$msplen = GetPathLength $env:windir\Installer\*.ms*
 ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
   $curfilelen = $_.Length
   if ( -not ($patchesList -icontains $_.FullName) ) {
@@ -118,16 +118,18 @@ ls $env:windir\Installer\*.msi,$env:windir\Installer\*.msp |% {
     catch {
       $mspInfo = ""
     }
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject([System.__ComObject]$instDB) | out-null
+    if ($instDB) {
+      [System.Runtime.InteropServices.Marshal]::ReleaseComObject([System.__ComObject]$instDB) | out-null
+    }
     [GC]::Collect()
     [GC]::WaitForPendingFinalizers()
     
-    Add-Type -AssemblyName Microsoft.VisualBasic
-    Write-Host "Move to the Recycle Bin: "$_.FullName$mspInfo
-    [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($_.FullName,'OnlyErrorDialogs','SendToRecycleBin')
+    Write-Host "Removing "$_.FullName$mspInfo
+    remove-item -force $_.FullName
     $msplen += $curfilelen
   }
 }
+$msplen -= GetPathLength $env:windir\Installer\*.ms*
 $total += $msplen
 
 #-Downloaded Installations------------------------------------
